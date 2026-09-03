@@ -46,3 +46,17 @@ API construida con FastAPI, gestionada con [uv](https://docs.astral.sh/uv/) y Py
 
 `compose.yaml` funciona con valores locales por defecto sin necesitar un `.env`.
 Para personalizarlos, copia `.env.example` a `.env` y ajusta los valores.
+
+## Migraciones
+
+Con la base levantada (`docker compose up -d`) y `DATABASE_URL` disponible en
+el entorno:
+
+```sh
+uv run alembic upgrade head    # aplica todas las migraciones pendientes
+uv run alembic downgrade base  # revierte todas las migraciones
+uv run alembic downgrade -1    # revierte solo la última
+```
+
+Cada migración implementa `upgrade` y `downgrade`, y se prueba en ambos
+sentidos antes de integrarse.
