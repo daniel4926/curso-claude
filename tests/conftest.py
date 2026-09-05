@@ -21,4 +21,4 @@ async def _clean_database() -> None:
     # que hay que soltarlo antes de usarlo en este test.
     await engine.dispose()
     async with engine.begin() as conn:
-        await conn.execute(text("truncate table projects cascade"))
+        await conn.execute(text("truncate table tasks, projects cascade"))
