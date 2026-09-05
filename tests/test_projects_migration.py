@@ -5,31 +5,23 @@ from sqlalchemy import text
 
 from alembic import command
 from app.db import engine
-from app.seed_states import STATE_CODES, seed_states
 
 ALEMBIC_CFG = Config("alembic.ini")
 
 
 async def _table_exists() -> bool:
     async with engine.connect() as conn:
-        result = await conn.execute(text("select to_regclass('public.states') is not null"))
+        result = await conn.execute(text("select to_regclass('public.projects') is not null"))
         return bool(result.scalar())
 
 
-async def _fetch_states() -> list[tuple[str, int]]:
-    async with engine.connect() as conn:
-        result = await conn.execute(
-            text("select code, sort_order from states order by sort_order, id")
-        )
-        return [(row.code, row.sort_order) for row in result.all()]
-
-
-async def _seed_twice_and_count() -> int:
+async def _insert_project_without_description() -> tuple[int, None]:
     async with engine.begin() as conn:
-        await conn.run_sync(seed_states)
-        await conn.run_sync(seed_states)
-        result = await conn.execute(text("select count(*) from states"))
-        return result.scalar_one()
+        result = await conn.execute(
+            text("insert into projects (name) values ('Casa') returning id, description")
+        )
+        row = result.one()
+        return row.id, row.description
 
 
 async def _scenario() -> None:
@@ -45,9 +37,9 @@ async def _scenario() -> None:
     await asyncio.to_thread(command.upgrade, ALEMBIC_CFG, "head")
 
     assert await _table_exists() is True
-    assert await _fetch_states() == list(zip(STATE_CODES, range(1, 5), strict=True))
 
-    assert await _seed_twice_and_count() == len(STATE_CODES)
+    _, description = await _insert_project_without_description()
+    assert description is None
 
     await asyncio.to_thread(command.downgrade, ALEMBIC_CFG, "base")
     assert await _table_exists() is False
@@ -55,5 +47,5 @@ async def _scenario() -> None:
     await asyncio.to_thread(command.upgrade, ALEMBIC_CFG, "head")
 
 
-def test_upgrade_seeds_catalog_and_downgrade_drops_table() -> None:
+def test_upgrade_creates_table_and_downgrade_drops_it() -> None:
     asyncio.run(_scenario())
