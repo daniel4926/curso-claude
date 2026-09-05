@@ -1,6 +1,8 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
+from app.db import engine
 from app.main import app
 
 
@@ -111,6 +113,74 @@ async def test_patch_project_can_clear_description_with_null() -> None:
 async def test_patch_nonexistent_project_returns_404() -> None:
     async with await _client() as client:
         response = await client.patch("/projects/999999", json={"name": "X"})
+
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+async def _seeded_state_id() -> int:
+    async with engine.connect() as conn:
+        result = await conn.execute(text("select id from states order by sort_order limit 1"))
+        return result.scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_delete_project_without_tasks_returns_204() -> None:
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+
+        response = await client.delete(f"/projects/{project_id}")
+        after = await client.get(f"/projects/{project_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert after.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_project_with_tasks_returns_409_and_keeps_both() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+        task_id = (
+            await client.post(
+                "/tasks",
+                json={"title": "Regar", "project_id": project_id, "state_id": state_id},
+            )
+        ).json()["id"]
+
+        response = await client.delete(f"/projects/{project_id}")
+        project_after = await client.get(f"/projects/{project_id}")
+        task_after = await client.get(f"/tasks/{task_id}")
+
+    assert response.status_code == 409
+    assert "detail" in response.json()
+    assert project_after.status_code == 200
+    assert task_after.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_delete_project_succeeds_after_deleting_its_task() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+        task_id = (
+            await client.post(
+                "/tasks",
+                json={"title": "Regar", "project_id": project_id, "state_id": state_id},
+            )
+        ).json()["id"]
+
+        await client.delete(f"/tasks/{task_id}")
+        response = await client.delete(f"/projects/{project_id}")
+
+    assert response.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_delete_nonexistent_project_returns_404() -> None:
+    async with await _client() as client:
+        response = await client.delete("/projects/999999")
 
     assert response.status_code == 404
     assert "detail" in response.json()

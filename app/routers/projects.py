@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.models import Project
+from app.models import Project, Task
 from app.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -52,3 +52,19 @@ async def update_project(
     await session.commit()
     await session.refresh(project)
     return project
+
+
+@router.delete("/{project_id}", status_code=204)
+async def delete_project(project_id: int, session: AsyncSession = Depends(get_session)) -> None:
+    project = await _get_project_or_404(project_id, session)
+
+    has_tasks = (
+        await session.execute(select(Task.id).where(Task.project_id == project_id).limit(1))
+    ).first() is not None
+    if has_tasks:
+        raise HTTPException(
+            status_code=409, detail=f"El proyecto {project_id} tiene tareas asociadas"
+        )
+
+    await session.delete(project)
+    await session.commit()
