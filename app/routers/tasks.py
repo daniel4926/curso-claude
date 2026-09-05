@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
@@ -35,3 +36,18 @@ async def create_task(payload: TaskCreate, session: AsyncSession = Depends(get_s
     await session.commit()
     await session.refresh(task)
     return task
+
+
+@router.get("", response_model=list[TaskRead])
+async def list_tasks(
+    project_id: int | None = None,
+    state_id: int | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> list[Task]:
+    query = select(Task).order_by(Task.id)
+    if project_id is not None:
+        query = query.where(Task.project_id == project_id)
+    if state_id is not None:
+        query = query.where(Task.state_id == state_id)
+    result = await session.execute(query)
+    return list(result.scalars().all())

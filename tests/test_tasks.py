@@ -25,6 +25,14 @@ async def _task_count() -> int:
         return result.scalar_one()
 
 
+async def _seeded_state_ids(count: int) -> list[int]:
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text("select id from states order by sort_order limit :count"), {"count": count}
+        )
+        return [row.id for row in result.all()]
+
+
 def test_create_schema_rejects_empty_title() -> None:
     with pytest.raises(ValidationError):
         TaskCreate(title="", project_id=1, state_id=1)
@@ -83,6 +91,59 @@ async def test_create_task_with_nonexistent_project_returns_422() -> None:
     assert response.status_code == 422
     assert "detail" in response.json()
     assert await _task_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_without_filters_is_ordered_by_id_and_stable() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+
+        first = await client.post(
+            "/tasks", json={"title": "Uno", "project_id": project_id, "state_id": state_id}
+        )
+        second = await client.post(
+            "/tasks", json={"title": "Dos", "project_id": project_id, "state_id": state_id}
+        )
+
+        response_a = await client.get("/tasks")
+        response_b = await client.get("/tasks")
+
+    ids_a = [task["id"] for task in response_a.json()]
+    ids_b = [task["id"] for task in response_b.json()]
+    assert ids_a == [first.json()["id"], second.json()["id"]]
+    assert ids_a == ids_b
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_filters_by_project_and_state_without_validating_existence() -> None:
+    state_ids = await _seeded_state_ids(2)
+    async with await _client() as client:
+        project_a = (await client.post("/projects", json={"name": "A"})).json()["id"]
+        project_b = (await client.post("/projects", json={"name": "B"})).json()["id"]
+
+        a1 = await client.post(
+            "/tasks", json={"title": "A1", "project_id": project_a, "state_id": state_ids[0]}
+        )
+        a2 = await client.post(
+            "/tasks", json={"title": "A2", "project_id": project_a, "state_id": state_ids[1]}
+        )
+        await client.post(
+            "/tasks", json={"title": "B1", "project_id": project_b, "state_id": state_ids[0]}
+        )
+
+        by_project = await client.get("/tasks", params={"project_id": project_a})
+        by_state = await client.get("/tasks", params={"state_id": state_ids[1]})
+        combined = await client.get(
+            "/tasks", params={"project_id": project_a, "state_id": state_ids[0]}
+        )
+        empty = await client.get("/tasks", params={"project_id": 999999})
+
+    assert {t["id"] for t in by_project.json()} == {a1.json()["id"], a2.json()["id"]}
+    assert {t["id"] for t in by_state.json()} == {a2.json()["id"]}
+    assert [t["id"] for t in combined.json()] == [a1.json()["id"]]
+    assert empty.status_code == 200
+    assert empty.json() == []
 
 
 @pytest.mark.asyncio
