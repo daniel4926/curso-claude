@@ -52,3 +52,65 @@ async def test_list_projects_is_ordered_by_id_and_stable_across_calls() -> None:
 
     assert ids_a == sorted(expected_ids)
     assert ids_a == ids_b
+
+
+@pytest.mark.asyncio
+async def test_get_project_by_id() -> None:
+    async with await _client() as client:
+        created = await client.post("/projects", json={"name": "Casa"})
+        project_id = created.json()["id"]
+
+        response = await client.get(f"/projects/{project_id}")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == project_id
+
+
+@pytest.mark.asyncio
+async def test_get_nonexistent_project_returns_404() -> None:
+    async with await _client() as client:
+        response = await client.get("/projects/999999")
+
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_patch_project_updates_only_given_fields() -> None:
+    async with await _client() as client:
+        created = await client.post(
+            "/projects", json={"name": "Casa", "description": "Original"}
+        )
+        project_id = created.json()["id"]
+
+        response = await client.patch(
+            f"/projects/{project_id}", json={"description": "Actualizada"}
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Casa"
+    assert body["description"] == "Actualizada"
+
+
+@pytest.mark.asyncio
+async def test_patch_project_can_clear_description_with_null() -> None:
+    async with await _client() as client:
+        created = await client.post(
+            "/projects", json={"name": "Casa", "description": "Original"}
+        )
+        project_id = created.json()["id"]
+
+        response = await client.patch(f"/projects/{project_id}", json={"description": None})
+
+    assert response.status_code == 200
+    assert response.json()["description"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_nonexistent_project_returns_404() -> None:
+    async with await _client() as client:
+        response = await client.patch("/projects/999999", json={"name": "X"})
+
+    assert response.status_code == 404
+    assert "detail" in response.json()
