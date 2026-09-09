@@ -84,6 +84,18 @@ def test_update_schema_rejects_due_at_without_timezone() -> None:
         TaskUpdate(due_at=datetime(2026, 3, 1, 9, 0, 0))
 
 
+def test_create_schema_rejects_priority_out_of_range() -> None:
+    with pytest.raises(ValidationError):
+        TaskCreate(title="X", project_id=1, state_id=1, priority=6)
+    with pytest.raises(ValidationError):
+        TaskCreate(title="X", project_id=1, state_id=1, priority=0)
+
+
+def test_update_schema_rejects_priority_out_of_range() -> None:
+    with pytest.raises(ValidationError):
+        TaskUpdate(priority=6)
+
+
 def test_update_schema_allows_omitting_title() -> None:
     update = TaskUpdate(description="Nueva descripción")
     assert update.title is None
@@ -113,7 +125,16 @@ async def test_create_task_returns_201_with_exact_schema() -> None:
     assert body["project_id"] == project_id
     assert body["state_id"] == state_id
     assert body["due_at"] is None
-    assert set(body.keys()) == {"id", "title", "description", "project_id", "state_id", "due_at"}
+    assert body["priority"] is None
+    assert set(body.keys()) == {
+        "id",
+        "title",
+        "description",
+        "project_id",
+        "state_id",
+        "due_at",
+        "priority",
+    }
 
 
 @pytest.mark.asyncio
@@ -411,3 +432,61 @@ async def test_list_tasks_overdue_filter() -> None:
         response = await client.get("/tasks", params={"overdue": "true"})
 
     assert [t["id"] for t in response.json()] == [overdue_task.json()["id"]]
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_priority_in_range() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+
+        response = await client.post(
+            "/tasks",
+            json={
+                "title": "Pagar impuestos",
+                "project_id": project_id,
+                "state_id": state_id,
+                "priority": 5,
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["priority"] == 5
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_priority_out_of_range_returns_422() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+
+        response = await client.post(
+            "/tasks",
+            json={
+                "title": "X",
+                "project_id": project_id,
+                "state_id": state_id,
+                "priority": 6,
+            },
+        )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+    assert await _task_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_patch_task_can_set_and_clear_priority() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+        created = await client.post(
+            "/tasks", json={"title": "Regar", "project_id": project_id, "state_id": state_id}
+        )
+        task_id = created.json()["id"]
+
+        set_response = await client.patch(f"/tasks/{task_id}", json={"priority": 3})
+        clear_response = await client.patch(f"/tasks/{task_id}", json={"priority": None})
+
+    assert set_response.json()["priority"] == 3
+    assert clear_response.json()["priority"] is None

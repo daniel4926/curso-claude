@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class ProjectCreate(BaseModel):
@@ -45,6 +45,7 @@ class TaskCreate(BaseModel):
     project_id: int
     state_id: int
     due_at: datetime | None = None
+    priority: int | None = Field(default=None, ge=1, le=5)
 
     @field_validator("title")
     @classmethod
@@ -63,6 +64,7 @@ class TaskUpdate(BaseModel):
     project_id: int | None = None
     state_id: int | None = None
     due_at: datetime | None = None
+    priority: int | None = Field(default=None, ge=1, le=5)
 
     @field_validator("title")
     @classmethod
@@ -86,6 +88,7 @@ class TaskRead(BaseModel):
     project_id: int
     state_id: int
     due_at: datetime | None
+    priority: int | None
 
     @field_serializer("due_at")
     def _serialize_due_at(self, value: datetime | None) -> str | None:
