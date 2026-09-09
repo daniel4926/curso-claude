@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta, timezone
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
@@ -33,6 +35,14 @@ async def _seeded_state_ids(count: int) -> list[int]:
         return [row.id for row in result.all()]
 
 
+async def _state_id_by_code(code: str) -> int:
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text("select id from states where code = :code"), {"code": code}
+        )
+        return result.scalar_one()
+
+
 def test_create_schema_rejects_empty_title() -> None:
     with pytest.raises(ValidationError):
         TaskCreate(title="", project_id=1, state_id=1)
@@ -46,6 +56,32 @@ def test_create_schema_rejects_ascii_whitespace_only_title() -> None:
 def test_create_schema_trims_title() -> None:
     task = TaskCreate(title="  Regar las plantas  ", project_id=1, state_id=1)
     assert task.title == "Regar las plantas"
+
+
+def test_create_schema_rejects_due_at_without_timezone() -> None:
+    with pytest.raises(ValidationError):
+        TaskCreate(
+            title="X",
+            project_id=1,
+            state_id=1,
+            due_at=datetime(2026, 3, 1, 9, 0, 0),
+        )
+
+
+def test_create_schema_normalizes_due_at_to_utc() -> None:
+    tz_minus_3 = timezone(timedelta(hours=-3))
+    task = TaskCreate(
+        title="X",
+        project_id=1,
+        state_id=1,
+        due_at=datetime(2026, 3, 1, 6, 0, 0, tzinfo=tz_minus_3),
+    )
+    assert task.due_at == datetime(2026, 3, 1, 9, 0, 0, tzinfo=UTC)
+
+
+def test_update_schema_rejects_due_at_without_timezone() -> None:
+    with pytest.raises(ValidationError):
+        TaskUpdate(due_at=datetime(2026, 3, 1, 9, 0, 0))
 
 
 def test_update_schema_allows_omitting_title() -> None:
@@ -76,7 +112,8 @@ async def test_create_task_returns_201_with_exact_schema() -> None:
     assert body["description"] is None
     assert body["project_id"] == project_id
     assert body["state_id"] == state_id
-    assert set(body.keys()) == {"id", "title", "description", "project_id", "state_id"}
+    assert body["due_at"] is None
+    assert set(body.keys()) == {"id", "title", "description", "project_id", "state_id", "due_at"}
 
 
 @pytest.mark.asyncio
@@ -262,3 +299,115 @@ async def test_create_task_with_nonexistent_state_returns_422() -> None:
     assert response.status_code == 422
     assert "detail" in response.json()
     assert await _task_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_due_at_serializes_as_utc_z_without_microseconds() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+
+        response = await client.post(
+            "/tasks",
+            json={
+                "title": "Pagar impuestos",
+                "project_id": project_id,
+                "state_id": state_id,
+                "due_at": "2026-03-01T06:00:00.123456-03:00",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["due_at"] == "2026-03-01T09:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_create_task_with_due_at_without_timezone_returns_422() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+
+        response = await client.post(
+            "/tasks",
+            json={
+                "title": "X",
+                "project_id": project_id,
+                "state_id": state_id,
+                "due_at": "2026-03-01T09:00:00",
+            },
+        )
+
+    assert response.status_code == 422
+    assert "detail" in response.json()
+    assert await _task_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_patch_task_can_set_and_clear_due_at() -> None:
+    state_id = await _seeded_state_id()
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+        created = await client.post(
+            "/tasks", json={"title": "Regar", "project_id": project_id, "state_id": state_id}
+        )
+        task_id = created.json()["id"]
+
+        set_response = await client.patch(
+            f"/tasks/{task_id}", json={"due_at": "2026-03-01T09:00:00Z"}
+        )
+        clear_response = await client.patch(f"/tasks/{task_id}", json={"due_at": None})
+
+    assert set_response.json()["due_at"] == "2026-03-01T09:00:00Z"
+    assert clear_response.json()["due_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_overdue_filter() -> None:
+    pending_state_id = await _state_id_by_code("PENDIENTE")
+    done_state_id = await _state_id_by_code("HECHA")
+    now = datetime.now(UTC)
+    past = (now - timedelta(days=1)).isoformat()
+    future = (now + timedelta(days=1)).isoformat()
+
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+
+        overdue_task = await client.post(
+            "/tasks",
+            json={
+                "title": "Vencida",
+                "project_id": project_id,
+                "state_id": pending_state_id,
+                "due_at": past,
+            },
+        )
+        await client.post(
+            "/tasks",
+            json={
+                "title": "Futura",
+                "project_id": project_id,
+                "state_id": pending_state_id,
+                "due_at": future,
+            },
+        )
+        await client.post(
+            "/tasks",
+            json={
+                "title": "Sin fecha",
+                "project_id": project_id,
+                "state_id": pending_state_id,
+            },
+        )
+        await client.post(
+            "/tasks",
+            json={
+                "title": "Vencida pero hecha",
+                "project_id": project_id,
+                "state_id": done_state_id,
+                "due_at": past,
+            },
+        )
+
+        response = await client.get("/tasks", params={"overdue": "true"})
+
+    assert [t["id"] for t in response.json()] == [overdue_task.json()["id"]]
