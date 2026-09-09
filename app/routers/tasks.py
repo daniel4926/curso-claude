@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +52,7 @@ async def create_task(payload: TaskCreate, session: AsyncSession = Depends(get_s
 async def list_tasks(
     project_id: int | None = None,
     state_id: int | None = None,
+    overdue: bool | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[Task]:
     query = select(Task).order_by(Task.id)
@@ -57,6 +60,13 @@ async def list_tasks(
         query = query.where(Task.project_id == project_id)
     if state_id is not None:
         query = query.where(Task.state_id == state_id)
+    if overdue:
+        now = datetime.now(UTC)
+        query = query.join(State, Task.state_id == State.id).where(
+            Task.due_at.is_not(None),
+            Task.due_at < now,
+            State.code != "HECHA",
+        )
     result = await session.execute(query)
     return list(result.scalars().all())
 

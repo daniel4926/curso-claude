@@ -35,6 +35,14 @@ async def _seeded_state_ids(count: int) -> list[int]:
         return [row.id for row in result.all()]
 
 
+async def _state_id_by_code(code: str) -> int:
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            text("select id from states where code = :code"), {"code": code}
+        )
+        return result.scalar_one()
+
+
 def test_create_schema_rejects_empty_title() -> None:
     with pytest.raises(ValidationError):
         TaskCreate(title="", project_id=1, state_id=1)
@@ -351,3 +359,55 @@ async def test_patch_task_can_set_and_clear_due_at() -> None:
 
     assert set_response.json()["due_at"] == "2026-03-01T09:00:00Z"
     assert clear_response.json()["due_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_overdue_filter() -> None:
+    pending_state_id = await _state_id_by_code("PENDIENTE")
+    done_state_id = await _state_id_by_code("HECHA")
+    now = datetime.now(UTC)
+    past = (now - timedelta(days=1)).isoformat()
+    future = (now + timedelta(days=1)).isoformat()
+
+    async with await _client() as client:
+        project_id = (await client.post("/projects", json={"name": "Casa"})).json()["id"]
+
+        overdue_task = await client.post(
+            "/tasks",
+            json={
+                "title": "Vencida",
+                "project_id": project_id,
+                "state_id": pending_state_id,
+                "due_at": past,
+            },
+        )
+        await client.post(
+            "/tasks",
+            json={
+                "title": "Futura",
+                "project_id": project_id,
+                "state_id": pending_state_id,
+                "due_at": future,
+            },
+        )
+        await client.post(
+            "/tasks",
+            json={
+                "title": "Sin fecha",
+                "project_id": project_id,
+                "state_id": pending_state_id,
+            },
+        )
+        await client.post(
+            "/tasks",
+            json={
+                "title": "Vencida pero hecha",
+                "project_id": project_id,
+                "state_id": done_state_id,
+                "due_at": past,
+            },
+        )
+
+        response = await client.get("/tasks", params={"overdue": "true"})
+
+    assert [t["id"] for t in response.json()] == [overdue_task.json()["id"]]
