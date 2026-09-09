@@ -97,8 +97,22 @@ ajustar y volver a mostrar antes de confirmar nada.
 
 ## Paso 6 — Confirmar, un commit a la vez
 
-Solo tras la aprobación: por cada grupo, en el orden acordado, `git add`
-de sus archivos por nombre y `git commit`. Al terminar el último, correr
+Solo tras la aprobación: por cada grupo, en el orden acordado, stagear y
+confirmar. El único material de cada commit es el diff que ya existe en
+el árbol de trabajo:
+
+- Si el archivo completo pertenece a un solo grupo, `git add <archivo>`.
+- Si un mismo archivo mezcla cambios de más de un grupo (Paso 2), `git add
+  -p <archivo>` y seleccionar solo los fragmentos de ese grupo; el resto
+  queda sin stagear, para el commit del otro grupo.
+
+Nunca se edita, reescribe ni reconstruye el contenido de un archivo para
+separar un commit de otro — ni siquiera de forma temporal para revertirlo
+después. Si `git add -p` no alcanza para aislar un grupo porque los
+cambios de las dos intenciones caen en el mismo fragmento indivisible, se
+avisa al usuario y se le pregunta cómo seguir, en vez de tocar el código.
+
+`git commit` con el mensaje acordado. Al terminar el último grupo, correr
 `git status` y confirmar que el árbol quedó limpio, salvo que el usuario
 haya dicho explícitamente que algo se queda deliberadamente sin commitear.
 
@@ -109,3 +123,6 @@ haya dicho explícitamente que algo se queda deliberadamente sin commitear.
 - No hace `git push`.
 - No usa `git add -A` ni `git add .`: siempre agrega archivos por nombre,
   grupo por grupo.
+- No reescribe, revierte ni reconstruye el contenido de ningún archivo
+  para aislar un commit: cada commit se arma solo con `git add` (completo
+  o `-p`) sobre el cambio que ya existe en el árbol de trabajo.
