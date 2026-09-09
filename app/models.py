@@ -1,4 +1,6 @@
-from sqlalchemy import ForeignKey, String
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -28,3 +30,4 @@ class Task(Base):
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"))
     state_id: Mapped[int] = mapped_column(ForeignKey("states.id"))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
