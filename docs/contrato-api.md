@@ -76,8 +76,7 @@ El curso adopta la migración. Con el script de Docker, quien ya tenía el volum
 creado nunca recibe el catálogo: el proyecto funciona en la máquina donde se
 creó y falla en la siguiente.
 
-El seed debe ser [idempotente](../docs/glosario.md#idempotente) —ejecutarlo dos
-veces deja lo mismo que una—.
+El seed debe ser idempotente —ejecutarlo dos veces deja lo mismo que una—.
 
 ## Proyectos
 

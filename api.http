@@ -1,0 +1,159 @@
+### TaskFlow — peticiones del contrato (docs/contrato-api.md)
+### Cubre Salud, Estados, Proyectos y Tareas v1-v2 (sin priority, que es v3).
+### Formato REST Client (VS Code): "# @name" nombra una petición y
+### "{{nombre.response.body.$.campo}}" reutiliza un valor de su respuesta,
+### para que cada petición se apoye en la anterior sin ids hardcodeados.
+### Requiere la API corriendo (README.md: docker compose up -d && uv run
+### uvicorn app.main:app --reload) y ejecutarse en orden, de arriba a abajo.
+
+@baseUrl = http://127.0.0.1:8000
+
+### Salud: la API responde
+GET {{baseUrl}}/health
+
+### Estados: catálogo fijo, ordenado (PENDIENTE, EN_CURSO, BLOQUEADA, HECHA)
+# @name listStates
+GET {{baseUrl}}/states
+
+### Proyectos: crear el proyecto que va a acumular tareas (para el 409 más abajo)
+# @name createProjectWithTasks
+POST {{baseUrl}}/projects
+Content-Type: application/json
+
+{
+  "name": "Casa",
+  "description": "Tareas del hogar"
+}
+
+### Proyectos: crear un segundo proyecto, sin tareas, para el borrado feliz
+# @name createProjectEmpty
+POST {{baseUrl}}/projects
+Content-Type: application/json
+
+{
+  "name": "Archivo temporal"
+}
+
+### Proyectos: listar, orden por id ascendente
+GET {{baseUrl}}/projects
+
+### Proyectos: obtener por id el proyecto recién creado
+GET {{baseUrl}}/projects/{{createProjectWithTasks.response.body.$.id}}
+
+### Proyectos: id inexistente responde 404
+GET {{baseUrl}}/projects/999999
+
+### Proyectos: actualización parcial del segundo proyecto
+PATCH {{baseUrl}}/projects/{{createProjectEmpty.response.body.$.id}}
+Content-Type: application/json
+
+{
+  "description": "Se borra más abajo"
+}
+
+### Tareas v1: crear una tarea válida (usa el primer estado del catálogo)
+# @name createTask
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "title": "Regar las plantas",
+  "project_id": {{createProjectWithTasks.response.body.$.id}},
+  "state_id": {{listStates.response.body.$[0].id}}
+}
+
+### Tareas v1: project_id inexistente responde 422 (no crea nada)
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "title": "Tarea huérfana",
+  "project_id": 999999,
+  "state_id": {{listStates.response.body.$[0].id}}
+}
+
+### Tareas v1: título de solo espacios responde 422 (no crea nada)
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "title": "   ",
+  "project_id": {{createProjectWithTasks.response.body.$.id}},
+  "state_id": {{listStates.response.body.$[0].id}}
+}
+
+### Tareas v1: listar todas, orden por id ascendente
+GET {{baseUrl}}/tasks
+
+### Tareas v1: filtrar por project_id
+GET {{baseUrl}}/tasks?project_id={{createProjectWithTasks.response.body.$.id}}
+
+### Tareas v1: obtener por id la tarea creada
+GET {{baseUrl}}/tasks/{{createTask.response.body.$.id}}
+
+### Tareas v1: id inexistente responde 404
+GET {{baseUrl}}/tasks/999999
+
+### Tareas v1: actualización parcial (el resto de los campos queda intacto)
+PATCH {{baseUrl}}/tasks/{{createTask.response.body.$.id}}
+Content-Type: application/json
+
+{
+  "title": "Regar las plantas del patio"
+}
+
+### Tareas v2: due_at válido, con zona horaria (se normaliza a UTC)
+# @name createTaskWithDueAt
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "title": "Pagar el alquiler",
+  "project_id": {{createProjectWithTasks.response.body.$.id}},
+  "state_id": {{listStates.response.body.$[0].id}},
+  "due_at": "2027-01-01T09:00:00-06:00"
+}
+
+### Tareas v2: due_at sin zona horaria responde 422 (es ambigua)
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "title": "Tarea con fecha ambigua",
+  "project_id": {{createProjectWithTasks.response.body.$.id}},
+  "state_id": {{listStates.response.body.$[0].id}},
+  "due_at": "2027-01-01T09:00:00"
+}
+
+### Tareas v2: due_at en el pasado y estado distinto de HECHA, para el filtro overdue
+# @name createOverdueTask
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{
+  "title": "Tarea vencida",
+  "project_id": {{createProjectWithTasks.response.body.$.id}},
+  "state_id": {{listStates.response.body.$[0].id}},
+  "due_at": "2020-01-01T00:00:00Z"
+}
+
+### Tareas v2: overdue=true devuelve solo la tarea vencida y no HECHA
+GET {{baseUrl}}/tasks?overdue=true
+
+### Proyectos: borrar un proyecto con tareas asociadas responde 409 (no borra nada)
+DELETE {{baseUrl}}/projects/{{createProjectWithTasks.response.body.$.id}}
+
+### Tareas v1/v2: borrar las tres tareas del proyecto para poder liberarlo
+DELETE {{baseUrl}}/tasks/{{createTask.response.body.$.id}}
+
+###
+DELETE {{baseUrl}}/tasks/{{createTaskWithDueAt.response.body.$.id}}
+
+###
+DELETE {{baseUrl}}/tasks/{{createOverdueTask.response.body.$.id}}
+
+### Proyectos: ahora sí se borra, ya sin tareas asociadas (204)
+DELETE {{baseUrl}}/projects/{{createProjectWithTasks.response.body.$.id}}
+
+### Proyectos: borrar el segundo proyecto, que nunca tuvo tareas (204)
+DELETE {{baseUrl}}/projects/{{createProjectEmpty.response.body.$.id}}
