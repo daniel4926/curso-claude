@@ -4,7 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.models import Project, Task
-from app.schemas import ProjectCreate, ProjectRead, ProjectUpdate
+from app.schemas import ErrorDetail, ProjectCreate, ProjectRead, ProjectUpdate
+
+_NOT_FOUND_RESPONSE = {404: {"model": ErrorDetail, "description": "El proyecto no existe"}}
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -33,14 +35,14 @@ async def list_projects(session: AsyncSession = Depends(get_session)) -> list[Pr
     return list(result.scalars().all())
 
 
-@router.get("/{project_id}", response_model=ProjectRead)
+@router.get("/{project_id}", response_model=ProjectRead, responses=_NOT_FOUND_RESPONSE)
 async def get_project(
     project_id: int, session: AsyncSession = Depends(get_session)
 ) -> Project:
     return await _get_project_or_404(project_id, session)
 
 
-@router.patch("/{project_id}", response_model=ProjectRead)
+@router.patch("/{project_id}", response_model=ProjectRead, responses=_NOT_FOUND_RESPONSE)
 async def update_project(
     project_id: int,
     payload: ProjectUpdate,
@@ -54,7 +56,14 @@ async def update_project(
     return project
 
 
-@router.delete("/{project_id}", status_code=204)
+@router.delete(
+    "/{project_id}",
+    status_code=204,
+    responses={
+        **_NOT_FOUND_RESPONSE,
+        409: {"model": ErrorDetail, "description": "El proyecto tiene tareas asociadas"},
+    },
+)
 async def delete_project(project_id: int, session: AsyncSession = Depends(get_session)) -> None:
     project = await _get_project_or_404(project_id, session)
 
