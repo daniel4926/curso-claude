@@ -99,7 +99,7 @@
             }
           },
           "404": {
-            "description": "No existe ningún proyecto con ese id",
+            "description": "El proyecto no existe",
             "content": {
               "application/json": {
                 "schema": {
@@ -159,7 +159,7 @@
             }
           },
           "404": {
-            "description": "No existe ningún proyecto con ese id",
+            "description": "El proyecto no existe",
             "content": {
               "application/json": {
                 "schema": {
@@ -202,7 +202,7 @@
             "description": "Successful Response"
           },
           "404": {
-            "description": "No existe ningún proyecto con ese id",
+            "description": "El proyecto no existe",
             "content": {
               "application/json": {
                 "schema": {
