@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
+from app.errors import business_conflict, resource_not_found
 from app.models import Project, Task
 from app.schemas import ProjectCreate, ProjectRead, ProjectUpdate
 
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 async def _get_project_or_404(project_id: int, session: AsyncSession) -> Project:
     project = await session.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail=f"El proyecto {project_id} no existe")
+        raise resource_not_found(f"El proyecto {project_id} no existe")
     return project
 
 
@@ -62,9 +63,7 @@ async def delete_project(project_id: int, session: AsyncSession = Depends(get_se
         await session.execute(select(Task.id).where(Task.project_id == project_id).limit(1))
     ).first() is not None
     if has_tasks:
-        raise HTTPException(
-            status_code=409, detail=f"El proyecto {project_id} tiene tareas asociadas"
-        )
+        raise business_conflict(f"El proyecto {project_id} tiene tareas asociadas")
 
     await session.delete(project)
     await session.commit()
