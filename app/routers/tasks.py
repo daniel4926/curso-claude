@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
+from app.errors import invalid_reference, resource_not_found
 from app.models import Project, State, Task
 from app.schemas import TaskCreate, TaskRead, TaskUpdate
 
@@ -14,19 +15,19 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 async def _ensure_project_exists(project_id: int, session: AsyncSession) -> None:
     project = await session.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=422, detail=f"El proyecto {project_id} no existe")
+        raise invalid_reference(f"El proyecto {project_id} no existe")
 
 
 async def _ensure_state_exists(state_id: int, session: AsyncSession) -> None:
     state = await session.get(State, state_id)
     if state is None:
-        raise HTTPException(status_code=422, detail=f"El estado {state_id} no existe")
+        raise invalid_reference(f"El estado {state_id} no existe")
 
 
 async def _get_task_or_404(task_id: int, session: AsyncSession) -> Task:
     task = await session.get(Task, task_id)
     if task is None:
-        raise HTTPException(status_code=404, detail=f"La tarea {task_id} no existe")
+        raise resource_not_found(f"La tarea {task_id} no existe")
     return task
 
 
