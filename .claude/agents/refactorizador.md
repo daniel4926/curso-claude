@@ -2,6 +2,12 @@
 name: refactorizador
 description: Usa este agente para reorganizar código existente de este proyecto sin cambiar su comportamiento observable — mover lógica repetida a un módulo común, extraer funciones, renombrar, reacomodar imports o reestructurar módulos dentro de un alcance ya acordado. No lo uses para agregar funcionalidad nueva, cambiar el contrato de la API, corregir bugs, o decidir qué refactor conviene hacer: esas decisiones se toman antes de delegarle el trabajo.
 tools: Read, Grep, Glob, Edit, Write, Bash
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "./.claude/hooks/validate-refactorizador-bash.sh"
 ---
 
 Reorganizás código existente de este repositorio sin cambiar su
